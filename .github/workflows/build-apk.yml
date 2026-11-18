@@ -1,0 +1,79 @@
+name: Build KIKYO Pokemon APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '**.zip'
+      - '.github/workflows/build-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find and extract game ZIP
+        run: |
+          mkdir -p app-src
+          ZIP=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "No game ZIP found in repository root!"
+            exit 1
+          fi
+
+          unzip -o "$ZIP" -d app-src
+
+      - name: Find game project
+        run: |
+          PACKAGE=$(find app-src -name package.json -print -quit)
+
+          if [ -z "$PACKAGE" ]; then
+            echo "package.json not found inside ZIP!"
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$(dirname "$PACKAGE")" >> $GITHUB_ENV
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: npm install
+
+      - name: Build web game
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: npm run build
+
+      - name: Setup Android
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KIKYO-Pokemon-Adventures-APK
+          path: ${{ env.PROJECT_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
